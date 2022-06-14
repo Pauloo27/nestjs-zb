@@ -5,19 +5,16 @@ import {
 import {
   Inject,
   Injectable,
-  Logger
 } from '@nestjs/common';
 import {
   ZEEBE_CONNECTION_PROVIDER
 } from '../zeebe.constans';
 import {
-  ICustomHeaders,
-  IInputVariables,
-  IOutputVariables,
-  ZBClient, ZBWorkerTaskHandler
+  ZBClient,
 } from 'zeebe-node';
 import * as process from 'process';
 import {
+  ZeebeWorkerError,
   ZeebeWorkerProperties
 } from '../zeebe.interfaces';
 
@@ -48,28 +45,39 @@ export class ZeebeServer extends Server implements CustomTransportStrategy {
     const handlers = this.getHandlers();
     handlers.forEach((value, key: any, map) => {
       if (typeof key === 'string' && key.includes('{')) {
-        let workerOptions = {
-          id: '',
-          taskType: '',
-          handler: (job, complete, worker) => value(job, {complete, worker}) as any,
-          options: {},
-          onConnectionError: undefined
-        }
-        let jsonKey: ZeebeWorkerProperties = null;
-        // See if it's a json, if so use it's data
         try {
-          jsonKey = JSON.parse(key) as ZeebeWorkerProperties;
-          workerOptions.taskType = jsonKey.type;
-          workerOptions.options = jsonKey.options || {};
+          const jsonKey = JSON.parse(key) as ZeebeWorkerProperties;
+          let workerOptions = {
+            taskType: jsonKey.type,
+            id: `${jsonKey.type}_${process.pid}`,
+            options: jsonKey.options || {},
+            handler: async (job, complete, worker) => {
+              try {
+                const inputJob = {
+                  ...job,
+                  error: undefined, forward: undefined, complete: undefined,
+                  fail: undefined, cancelWorkflow: undefined,
+                };
+                const result = value(inputJob, { complete, worker }) as any
+                if (result instanceof Promise)
+                  return job.complete(await result);
 
-          workerOptions.id = `${workerOptions.taskType}_${process.pid}`;
-          //workerOptions.id, workerOptions.taskType, workerOptions.handler, workerOptions.options
-          const zbWorker = this.client.createWorker({
-              id: workerOptions.id,
-              taskHandler: workerOptions.handler,
-              taskType: workerOptions.taskType,
-              ...workerOptions.options
-            });
+                return job.complete(result);
+              } catch (e) {
+                if (e instanceof ZeebeWorkerError) {
+                  return job.error(e, e.message);
+                }
+                return job.error(e);
+              }
+            },
+            onConnectionError: undefined
+          }
+          this.client.createWorker({
+            id: workerOptions.id,
+            taskHandler: workerOptions.handler,
+            taskType: workerOptions.taskType,
+            ...workerOptions.options
+          });
         } catch (ex) {
           this.logger.error('Zeebe error:', ex);
         }

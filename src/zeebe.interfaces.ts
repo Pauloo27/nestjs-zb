@@ -1,4 +1,4 @@
-import { ZBWorkerOptions, ZBClientOptions, Job, JobCompletionInterface, IOutputVariables, IInputVariables, ICustomHeaders } from "zeebe-node";
+import { ZBWorkerOptions, ZBClientOptions, Job, ICustomHeaders } from "zeebe-node";
 
 /**
  *
@@ -46,5 +46,10 @@ export interface ZeebeAsyncOptions {
  * @extends {Job<IInputVariables, ICustomHeaders>}
  * @extends {JobCompletionInterface<IOutputVariables>}
  */
-export interface ZeebeJob extends Job<IInputVariables, ICustomHeaders>, JobCompletionInterface<IOutputVariables>
-{}
+export interface ZeebeJob<I> extends Job<I, ICustomHeaders> {}
+
+export class ZeebeWorkerError extends Error {
+    constructor(error: string, public readonly message: string) {
+        super(error);
+    }
+}
